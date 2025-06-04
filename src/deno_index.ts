@@ -52,23 +52,6 @@ async function handleWebSocket(req: Request): Promise<Response> {
   return response;
 }
 
-async function handleAPIRequest(req: Request): Promise<Response> {
-  try {
-    const worker = await import('./api_proxy/worker.mjs');
-    return await worker.default.fetch(req);
-  } catch (error) {
-    console.error('API request error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    const errorStatus = (error as { status?: number }).status || 500;
-    return new Response(errorMessage, {
-      status: errorStatus,
-      headers: {
-        'content-type': 'text/plain;charset=UTF-8',
-      }
-    });
-  }
-}
-
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
   console.log('Request URL:', req.url);
@@ -78,13 +61,51 @@ async function handleRequest(req: Request): Promise<Response> {
     return handleWebSocket(req);
   }
 
-  if (url.pathname.endsWith("/chat/completions") ||
-    url.pathname.endsWith("/embeddings") ||
-    url.pathname.endsWith("/models")) {
-    return handleAPIRequest(req);
+  // 直接代理所有 API 请求到 Gemini
+  if (url.pathname.startsWith("/v1beta/")) {
+    return proxyToGemini(req);
   }
 
   return new Response('ok');
+}
+
+async function proxyToGemini(req: Request): Promise<Response> {
+  try {
+    const url = new URL(req.url);
+    const targetUrl = `https://generativelanguage.googleapis.com${url.pathname}${url.search}`;
+    
+    console.log('Proxying to:', targetUrl);
+    
+    // 创建新的请求头，保留原始请求的大部分头信息
+    const headers = new Headers(req.headers);
+    
+    // 创建新的请求
+    const proxyReq = new Request(targetUrl, {
+      method: req.method,
+      headers: headers,
+      body: req.body,
+      redirect: 'follow',
+    });
+    
+    // 发送请求到 Gemini API
+    const response = await fetch(proxyReq);
+    
+    // 创建新的响应头，添加 CORS 支持
+    const responseHeaders = new Headers(response.headers);
+    responseHeaders.set('Access-Control-Allow-Origin', '*');
+    responseHeaders.set('Access-Control-Allow-Methods', '*');
+    responseHeaders.set('Access-Control-Allow-Headers', '*');
+    
+    // 返回响应
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: responseHeaders
+    });
+  } catch (error) {
+    console.error('Proxy error:', error);
+    return new Response(`Proxy error: ${error.message}`, { status: 500 });
+  }
 }
 
 Deno.serve(handleRequest); 
