@@ -79,7 +79,7 @@ async function proxyToGemini(req: Request): Promise<Response> {
     // 创建新的请求头，保留原始请求的大部分头信息
     const headers = new Headers(req.headers);
     
-    // 创建新的请求
+    // 创建新的请求 
     const proxyReq = new Request(targetUrl, {
       method: req.method,
       headers: headers,
